@@ -1,0 +1,128 @@
+## Bash script for N plucking from TiN till Ti
+
+
+#!/bin/bash
+
+# ----------- Basic Info ------------
+num_Ti=96
+num_N=96
+total_atoms=$((num_Ti + num_N))
+start_coords=9  # Coordinate lines start at line 9
+end_coords=$((start_coords + total_atoms - 1))
+
+# ----------- Setup output folders ------------
+mkdir -p pluck_n_results energies
+> energies/energy_list.txt
+> energies/energies.csv
+echo "N_index,Energy(eV)" >> energies/energies.csv
+
+# ----------- Loop over all N atoms ------------
+for ((i=0; i<num_N; i++)); do
+    echo "Processing N atom #$i..."
+
+    coord_line=$((start_coords + num_Ti + i))  # N atoms are after Ti atoms
+
+    # Generate new POSCAR with 1 N atom removed
+    head -n 5 POSCAR > temp_POSCAR
+    echo "Ti N" >> temp_POSCAR
+    echo "$num_Ti $((num_N - 1))" >> temp_POSCAR
+    echo "Direct" >> temp_POSCAR
+    tail -n $((total_atoms)) POSCAR | sed "$((num_Ti + i + 1))d" >> temp_POSCAR
+
+    # Create directory for this configuration
+    config_dir="pluck_n_results/remove_N_$i"
+    mkdir -p "$config_dir"
+    cp temp_POSCAR "$config_dir/POSCAR"
+
+    # Copy necessary files for LAMMPS
+    cp al.in lmp_mpi Potential_0.75_0.25_0.25_new.almtp "$config_dir/"
+
+    # Convert POSCAR to LAMMPS format
+    atomsk "$config_dir/POSCAR" "$config_dir/Ti.lmp"
+
+    # Run LAMMPS minimization
+    cd "$config_dir"
+    rm -f logout.txt
+    nohup mpirun -n 48 ./lmp_mpi -in al.in &> nohup.out
+    cp logout.txt log.lammps
+    cd -
+
+    # Extract cohesive energy
+    energy=$(grep "Cohesive energy" "$config_dir/log.lammps" | tail -1 | awk -F'= ' '{print $2}' | tr -d ';')
+
+    echo "$energy $config_dir" >> energies/energy_list.txt
+    echo "$i,$energy" >> energies/energies.csv
+
+done
+
+# ----------- Find Best Energy Configuration ------------
+best_config=$(sort -n energies/energy_list.txt | head -1 | awk '{print $2}')
+echo "Lowest energy structure: $best_config"
+cp "$best_config/POSCAR" POSCAR_best
+
+echo "All done!"
+
+
+## Bash script for N insertion from Ti2N till TiN
+
+
+#!/bin/bash
+
+# -------- Basic info setup --------
+num_Ti=96
+num_N=48
+start_coordinate=9
+total_num_atoms=$((num_Ti + num_N))
+end_coordinate=$((start_coordinate + total_num_atoms - 1))
+echo "${end_coordinate} -> Check with POSCAR whether it is correct or not"
+
+# -------- Setup folders --------
+mkdir -p add_n_results energies
+> energies/energies.csv
+> energies/energy_list.txt
+echo "N_index,Energy(eV)" >> energies/energies.csv
+
+# -------- Get number of insertion coordinates --------
+num_lines=$(wc -l < nitrogen_positions.csv)
+
+# -------- Loop through each line in CSV --------
+for ((i = 0; i < num_lines; i++)); do
+    echo "Inserting N atom #$i..."
+
+    # Create modified POSCAR
+    head -n 5 POSCAR > temp_POSCAR
+    echo "Ti N" >> temp_POSCAR
+    echo "$num_Ti $((num_N + 1))" >> temp_POSCAR
+    echo "Direct" >> temp_POSCAR
+    tail -n "$total_num_atoms" POSCAR >> temp_POSCAR
+
+    # Append the new N atom coordinate (replace comma with space if needed)
+    sed -n "$((i + 1))p" nitrogen_positions.csv | tr ',' ' ' >> temp_POSCAR
+
+    # Create a directory for this configuration
+    config_dir="add_n_results/add_N_$i"
+    mkdir -p "$config_dir"
+    cp temp_POSCAR "$config_dir/POSCAR"
+    cp Potential_0.75_0.25_0.25_new.almtp al.in lmp_mpi "$config_dir/"
+
+    # Run LAMMPS simulation
+    cd "$config_dir" || exit
+    atomsk POSCAR Ti.lmp
+    nohup mpirun -n 48 ./lmp_mpi -in al.in &> nohup.out
+    cd - > /dev/null || exit
+
+    # Extract energy
+    energy=$(grep "Cohesive energy" "$config_dir/nohup.out" | tail -1 | awk -F'= ' '{print $2}' | tr -d ';')
+
+    # Save energy and directory info
+    echo "$i,$energy" >> energies/energies.csv
+    echo "$energy $config_dir" >> energies/energy_list.txt
+done
+
+# -------- Find lowest energy configuration --------
+best_config=$(sort -n energies/energy_list.txt | head -1 | awk '{print $2}')
+echo "Lowest energy structure: $best_config"
+cp "$best_config/POSCAR" POSCAR_best
+
+echo "All done!"
+
