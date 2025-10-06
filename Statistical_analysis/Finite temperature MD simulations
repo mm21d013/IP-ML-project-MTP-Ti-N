@@ -1,0 +1,57 @@
+# Script for MD simulation upto room temperature with lammps
+
+# ---- Simulation Setup ----
+units metal
+atom_style atomic
+boundary p p p
+read_data Ti.lmp
+
+neighbor 0.3 bin
+thermo_modify lost ignore
+
+pair_style mlip load_from=Potential_0.75_0.25_0.25.almtp
+pair_coeff * *
+
+timestep 0.001
+
+# ---- Simulation Parameters ----
+variable T_initial equal 40      # Initial temperature (K)
+variable T_ramp    equal 300     # Ramp temperature (K)
+variable T_final   equal 300     # Final stabilization temperature (K)
+variable p_target  equal 0.0     # Target pressure (bar)
+variable stab_time equal 5000    # Stabilization time (at start and end)
+variable ramp_time equal 5000   # Time to ramp from 40K to 560K
+
+# ---- Initialization ----
+velocity all create ${T_initial} 4928459 dist gaussian
+
+# ---- Stage 1: Stabilization at 40 K ----
+fix stage1 all npt temp ${T_initial} ${T_initial} 100 iso ${p_target} ${p_target} 1000
+thermo_style custom step temp etotal press vol lx ly lz xy xz yz
+thermo 2
+dump snapshot_40K all atom 5000 snapshot_40K.lammpstrj  # Save snapshot at 40K
+run ${stab_time}
+undump snapshot_40K  # Stop dumping after stabilization
+unfix stage1
+
+# ---- Stage 2: Ramp Temperature from 40 K to 560 K ----
+fix stage2 all npt temp ${T_initial} ${T_ramp} 0.1 iso ${p_target} ${p_target} 1
+thermo_style custom step temp etotal press vol lx ly lz xy xz yz
+thermo 2
+dump snapshot_ramp all atom 5000 snapshot_ramp.lammpstrj  # Save snapshot during ramp
+run ${ramp_time}
+undump snapshot_ramp  # Stop dumping after ramp
+unfix stage2
+
+# ---- Stage 3: Stabilization at Final Temperature (400 K) ----
+fix stage3 all npt temp ${T_final} ${T_final} 100 iso ${p_target} ${p_target} 1000
+thermo_style custom step temp etotal press vol lx ly lz xy xz yz
+thermo 2
+dump snapshot_300K all atom 5000 snapshot_300K.lammpstrj  # Save snapshot at final stabilization temperature
+run ${stab_time}
+undump snapshot_300K  # Stop dumping after stabilization
+unfix stage3
+
+# ---- Final Output for Entire Simulation ----
+thermo_style custom step temp etotal press vol lx ly lz xy xz yz
+thermo 2
