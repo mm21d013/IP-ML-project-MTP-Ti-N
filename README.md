@@ -1,4 +1,4 @@
-This project combine DFT and Machine Learning Interatomic Potential to develop and analyze interatomic potentials developed for Ti-N system
+This project combines DFT and Machine Learning Interatomic Potential to develop and analyze interatomic potentials developed for Ti-N system
 
 # IP-ML Project: Ti-N Interatomic Potential Development
 
